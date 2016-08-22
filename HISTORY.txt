@@ -1,0 +1,108 @@
+﻿==========================================20160803
+-------------v0.3规划修改-----------
+一、静态设计
+1、设计tagItem类和tagManager类（取消tagGroup）。另外还有driver类和driverManager类。（有关的主要是driver类）
+2、tagManager管理所有的tagItems，维护一个tagID和tagItem*的哈希表。tagID是一个全局唯一的（QString,UUID）。tagID随着变量诞生，且永远不变。
+3、tagItem设计为一种简单类。负责存储所有的参数和数据。通信断线后还能保持最后状态。要有初始化值。
+4、driver类。
+    a.维护一个address和tagID的哈希表。
+    b.driver中设置rollInterv。
+    c.driver对地址进行排序，优化出一个实际读写区间，优化读速度。
+    d.UI中设置tagItem的对应的address时，会调用verify方法。
+    e.应该有一个systemDriver，作为测试用。
+    f.应该还要设计一个立即写的slot，传入参数为（&tagID）。
+
+二、动态设计
+1、开机初始化：tagManger调用load函数，从文件中读取本身以及新建所有的tagItems。再逐一调用tagItem的load函数。
+            tagManger完成以上工作后，才能初始化driverManager。因为driver在初始化时要生成address和tagID的哈希表，此时需要验证tagID是否存在。
+            如果load的时候无法查找到tagID对应的tagItem*，或者address不能通过语法检查，则不load该条目。
+            driver读写的时候，会一一向tagManager查询tagID对应的tagItem*。
+2、tagItem的更新： driver定时更新与之关联的tagItem。tagItem的value、quality和lastUpdateTime。
+3、tagManager的检查：tagManager定时轮询各个tagItem是否超时。
+4、tagItem的写：有两种办法。一种是异步写入。tagItem设置一个标志位，表示当前value是往下写的，不能被更新，且要待driver进入写循环时写入。
+            另一种是同步写入。tagItem调用driverManager的立即写的函数，要求所有driver搜索并写值。
+5、UI修改tag：可以形成一个二维表格，行是tagItems，前几列是tagItems的自身属性。后面是driver列（可以有多个driver列）。driver列每一个单元格，都是tagItem的address。
+            输入address会立即调用driver的verify函数。如果通过，则在driver的哈希表上增加一个记录。若tagItem的address清空，则在driver的哈希表上删除对应记录
+
+6、UI新增tag：新建一个tagItem，tagManager中生成UUID，并把UUID和tagItem*记录到哈希表中。新的tag没有任何address。
+7、UI复制tag：新建一个tagItem，tagManager中生成UUID，新的tagItem=老的tagItem。同时要通知每个driver，同步复制address
+8、UI删除tag：先删除driver中的address，再删除tagItem。
+9、UI拷贝tag：复制tagItem的tagID。
+10、UI粘贴tag，UI剪切tag。。。。
+11、独立性检查：必须保证tagName的独立性，需要检查tagName的独立性when任何tagName发生变化。
+三、tagItem
+1、接口：
+    iTagItemSelfCheck（自检查功能）
+    iTagItemUpdate（数据更新功能）
+    iLoadSave（存储操作）
+    iTagItemCommon（读写\修改参数操作）
+
+四、tagManager
+1、接口：
+    iLoadSave（存储操作）
+    baseDevice（标准状态、属性、错误等）
+    iTagManagerOperateItem（标签项操作，新增、修改、复制、拷贝、粘贴、剪切、删除等）
+    iTagManagerCheckItem（检查超时、检查name是否相同）。
+
+todo
+1、driver要分为driver（能够更新tagItem）和repeater（不允许更新tagItem）。一个tagItem不能有两个或以上的driver，可以有任意个repeater。
+2、消息汇总，标准化、可组态
+==========================================20160802
+-------------v0.2规划修改-----------
+一、静态设计
+1、设计tagItem类和tagManager类（取消tagGroup）。另外还有driver类和driverManager类。（有关的主要是driver类）
+2、tagManager管理所有的tagItems，维护一个tagName和tagItem*的哈希表。
+3、tagItem设计为一种简单类。负责存储所有的参数和数据。通信断线后还能保持最后状态。要有初始化值。
+4、driver类。
+    a.维护一个address和tagItem*的哈希表。
+    b.driver中设置rollInterv。
+    c.driver对地址进行排序，优化出一个实际读写区间，优化读速度。
+    d.UI中设置tagItem的对应的address时，会调用verify方法。
+    e.应该有一个systemDriver，作为测试用。
+    f.应该还要设计一个立即写的slot，传入参数为（tagItem*）。
+
+二、动态设计
+1、开机初始化：tagManger调用load函数，从文件中读取本身以及新建所有的tagItems。再逐一调用tagItem的load函数。
+            tagManger完成以上工作后，才能初始化driverManager。因为driver在初始化时要生成address和tagItem*的哈希表。
+            driver保存和读取的是tagName和address的表格，因此driver读取的时候，会一一向tagManager查询tagName对应的tagItem*。
+            如果load的时候无法查找到tagName对应的tagItem*，或者address不能通过语法检查，则不load该条目。
+2、UI修改tag：可以形成一个二维表格，行是tagItems，前几列是tagItems的自身属性。后面是driver列（可以有多个driver列）。driver列每一个单元格，都是tagItem的address。
+            输入address会立即调用driver的verify函数。如果通过，则在driver的哈希表上增加一个记录。若tagItem的address清空，则在driver的哈希表上删除对应记录
+3、tagItem的更新： driver定时更新与之关联的tagItem。tagItem的value、quality和lastUpdateTime。
+4、tagManager的检查：tagManager定时轮询各个tagItem是否超时。
+5、tagItem的写：有两种办法。一种是异步写入。tagItem设置一个标志位，表示当前value是往下写的，不能被更新，且要待driver进入写循环时写入。
+            另一种是同步写入。tagItem调用driverManager的立即写的函数，要求所有driver搜索并写值。
+
+三、tagItem
+1、接口：
+    iTagItemSelfCheck（自检查功能）
+    iTagItemUpdate（数据更新功能）
+    iLoadSave（存储操作）
+    iTagItemCommon（读写\修改参数操作）
+
+四、tagManager
+1、接口：
+    iLoadSave（存储操作）
+    baseDevice（标准状态、属性、错误等）
+    iTagManagerOperateItem（标签项操作）
+
+
+todo
+1、driver要分为driver（能够更新tagItem）和repeater（不允许更新tagItem）。一个tagItem不能有两个或以上的driver，可以有任意个repeater。
+==========================================20160801
+-------------v0.1规划---------------
+
+一、总体设计
+1、设计tagItem类、tagGroup类和tagManager类
+2、tagManager管理一个顶级tagGroup。tagManager负责管理整个项目所有的tagItems和tagGroups。
+   iTagManagerOperation(带有复制命令、重命名命令等)iTagManagerBrowse(带有浏览、搜索等命令)
+3、tagGroup类包含有一个子tagGroup列表和tag哈希表。带有名称属性。
+   iTagGroupOperation(带有复制命令、重命名命令等)。iTagGroupCheckItem(带检查断线等功能)
+4、tagItem类包含了数据的基本属性，显式的包括名称、驱动名称、地址、质量代码；隐式的包括写入pending、驱动指针、最后更新时间、轮询周期等属性。
+5、driver定时更新tag的数据。tag含有一个更新的方法。driver类有一个tag指针的列表，driver带一个注册函数，新建tag时都要把tag注册给driver。
+6、若tag有数据要写入（写入pending==true），driver向远程对象写入数据。
+7、tag和tagGroup呈树状结构。从顶层往下传递：save/load。自下至顶传递：数据更新signal，质量代码更新signal。
+8、tag、tagGroup的查找？看书。。。
+9、tag、tagGroup的新建、删除
+10、tag、tagGroup的剪切复制粘贴
+11、isLeaf()
