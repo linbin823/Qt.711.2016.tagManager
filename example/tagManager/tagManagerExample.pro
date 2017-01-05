@@ -4,14 +4,15 @@
 #
 #-------------------------------------------------
 
-QT       += core gui xml xmlpatterns
+QT       += core gui
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 TARGET = tagManagerExample
 TEMPLATE = app
 
-include(..\..\lib\tagManager\tagManager.pri)
+include(../../src/tagManager.pri)
+
 SOURCES += \  
     main.cpp \
     example.cpp

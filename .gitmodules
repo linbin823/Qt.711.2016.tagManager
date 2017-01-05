@@ -1,0 +1,6 @@
+[submodule "lib/loadSaveProcessor"]
+	path = lib/loadSaveProcessor
+	url = https://github.com/linbin823/Qt.lib.2016.loadSaveProcessor2.git
+[submodule "lib/DBWrap"]
+	path = lib/DBWrap
+	url = https://github.com/linbin823/Qt.lib.2016.DBWrap.git

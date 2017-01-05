@@ -5,7 +5,7 @@
 #include <QPaintEvent>
 #include <QStandardItemModel>
 
-#include "tagmanager.h"
+#include "old_tagmanager.h"
 
 namespace Ui {
 class example;
@@ -31,8 +31,8 @@ public slots:
 private slots:
     void updateTagItem(QString tagID);
     void removeTagItem(QString tagID);
-    void on_PB_add_clicked();
 
+    void on_PB_add_clicked();
     void on_PB_delete_clicked();
 };
 

@@ -1,5 +1,237 @@
-﻿==========================================20160803
--------------v0.3规划修改-----------
+﻿==========================================20170105
+-------------v0.12规划修改-----------
+一.数据结构
+  过程数据库process database(pdb)只负责存储：编号（主键）、名称、值、质量代码、更新时间。
+组态时，参数修改以文件形式保存到pdb；运行时，pdb将被拷贝至内存中。
+
+  tag的参数使用对象形式，经过序列化后保存到xml文件（反之亦然）。
+
+
+二.主要类/结构体
+  tagParameters：
+    1、tag的UUID
+    2、tag名称
+    3、tag数据类型，枚举
+    4、tag读写策略，枚举
+    5、tag初始值
+    6、tagDriver相关信息（可以有多个，QList）。
+
+  tagDriver信息：
+    1、driver名称
+    2、数据地址
+    3、数据类型，枚举
+    4、roll间隔
+    5、write pending bit。
+
+  saveloadProcessor类:
+    1.负责以上各类组成的复杂结构的参数保存和读取。Xml格式
+    2.程序中存在两类数据存储方法：大量并列数据采用数据库存取，而复杂结构的类参数采用该类存取。saveloadProcessor类负责程序参数保存（支持xml格式或json格式，可加密）。
+
+  driver类:
+    1.含有一个负责解析具体通信协议的类的指针。标准接口
+    2.切换到运行时，从driverManager获得与本driver相关的tag的address信息。
+    3.负责判断address是否合法，该工作由driverManager类发起。
+    4.组态时，负责driver参数修改。
+
+  具体的通信协议解析类:
+    ……
+
+  tagManager类：
+    1.保存所有tag信息的实例。
+    2.ui组态时接口：tag参数的新建、删除、修改等操作
+    3.含有driverManager类指针
+    4.单例
+  pDBHelper类：
+    1.运行时接口：封装tag数值的写操作（含数据驱动写、UI写两种），保存至本地DB文件的接口。
+    2.切换到运行时，拷贝pdb至内存的接口。
+    3.运行时接口：发送valueChanged信号、qualityChanged信号至UI。
+    4.运行时接口：发送writePending信号至driverManager，置位write pending bit
+    5.单例
+  driverManager类：
+    1.含QVector<driver*>，保存driver的实例。
+    2.ui组态时接口：负责新建、删除、修改各种类型driver。
+    3.ui组态时接口：封装修改tagDriver信息，调用对应driver的verify函数
+    4.含有tagManager类。
+    5.切换到运行时，从tagManager类获取每个driver对应的tagParameters列表，转发给每个driver
+    6.运行时接口：接收pDBHelper发送的writePending signal，置位对应driver的write pending bit
+    7.单例
+
+三、重点功能规划
+  1.数据库的读写：
+    SQLite数据库特性：
+      a.当有写操作时，其他读操作会被驳回
+      b.当有写操作时，其他写操作会被驳回
+      c.当开启事务时，在提交事务之前，其他写操作会被驳回
+      d.当开启事务时，在提交事务之前，其他事务请求会被驳回
+      e.当有读操作时，其他写操作会被驳回
+      f.读操作之间能够并发执行
+    对策：
+      a.采用互斥锁控制数据库写操作
+      b.只有拥有互斥锁的线程才能够操作数据库
+      c.写操作必须独立拥有互斥锁
+      d.读操作必须能够共享互斥锁，该互斥锁采用时分复用的方式，固定时间获得读取权限。
+      e.采用事务方法可以提高性能。
+  2.本地UI控件采用信号-槽机制，数值update后，会发出valueChanged信号给UI更新。尽可能减少数据库读写操作。
+    void valueChanged(const Qstring& tagName, const Qvariant& data, const int& type)
+  3.运行时，每个tag有三种读写策略：
+      a.Read only 一直读取
+      b.Write only 一直写入
+      c.Read/Write 一直读取。driver的address信息中包含一个写一次（write once）状态位。该指令由UI控件发出，至processDataAccessInterface类，转发到driverManager并最终至各个driver的address。driver发现某个tag的状态位置位，则停止读取数据。同时写入程序则把该值写入到下位机，之后才把状态位复位。该逻辑设计时要注意竞争。
+  4.每个tag都有一个读写间隔(roll interv)参数。driver类负责轮巡读写每个tag，每次动态生成一个需要读取的tag列表，和一个需要写入的tag列表。driver类把这两个列表交给另一个底层的，与协议相关的类进行通信。底层类对地址进行排序，优化出一个实际读写区间，优化读速度。（需要再细化）
+  5.有一个全局工作状态，该状态分为configure和run。
+    configure状态下，停止数据读写，允许tag和address等参数的编辑。
+    run状态下，启动数据读写。因此，需要driverManager类和driver类具备一个configure和一个run的槽，用于起停所有driver的数据读写工作。
+  6.应该有一个systemDriver，作为测试用。
+
+==========================================20170101
+-------------v0.11规划修改-----------
+一.数据结构
+使用一个process database(pdb)，pdb中含:
+表1:tag的参数和数值。含
+tag名称、tag数据类型、tag最后更新时间、tag质量代码、tag值等
+表2:tag与driver#1相关的信息。含
+tag名称、数据地址、数据类型、读写策略、roll间隔、写一次状态位等
+表3:tag与driver#2相关的信息。。以此类推
+
+组态时，参数修改以文件形式保存到pdb；运行时，pdb将被拷贝至内存中。
+
+二.主要类成员
+
+dbWrap类：
+1、封装数据库的的打开关闭接口。
+2、封装数据库的数据查询修改接口。（含读写互斥锁）
+3、封装数据库拷贝接口。（运行时建立内存数据库）
+4、含有一个qSqlDatabase指针
+
+processDataAccessInterface类：
+1.封装tag参数的新建、删除、修改等操作
+2.封装tag数值的信息读写等操作
+3.tag数值更新时发送signal给ui
+4.接收ui发送的写一次signal，转发给driverManager
+5.含有两个dbWrap类的指针（一个文件数据库、一个内存数据库）
+6.含有driverManager类指针
+7.单例
+
+driverManager类：
+1.含QVector<driver*>，管理driver的实例。
+2.driver的工厂类，含各种类型driver，负责新建、删除
+3.组态时，各个driver的新建、修改、删除的api
+4.封装pdb 中与drivers相关的信息的读写操作。即组态时，根据driver的新建、删除，动态建立、删除pdb表
+5.封装修改address操作，调用对应driver的verify函数
+6.接收processDataAccessInterface发送的写一次signal，置位对应的“写一次状态位”
+7.单例
+
+driver类:
+1.含有一个负责解析具体通信协议的类的指针。标准接口
+2.切换到运行时，从driverManager获得与本driver相关的tag的address信息。
+3.负责判断address是否合法，该工作由driverManager类发起。
+4.负责driver参数修改。
+
+具体的通信协议解析类:
+
+saveloadProcessor类:
+1.负责以上各类组成的复杂结构的参数保存和读取。Xml格式
+2.程序中存在两类数据存储方法：大量并列数据采用数据库存取，而复杂结构的类参数采用该类存取。saveloadProcessor类负责程序参数保存（支持xml格式或json格式，可加密）。
+三、重点功能规划
+  1.数据库的读写：
+    SQLite数据库特性：
+      a.当有写操作时，其他读操作会被驳回
+      b.当有写操作时，其他写操作会被驳回
+      c.当开启事务时，在提交事务之前，其他写操作会被驳回
+      d.当开启事务时，在提交事务之前，其他事务请求会被驳回
+      e.当有读操作时，其他写操作会被驳回
+      f.读操作之间能够并发执行
+    对策：
+      a.采用互斥锁控制数据库写操作
+      b.只有拥有互斥锁的线程才能够操作数据库
+      c.写操作必须独立拥有互斥锁
+      d.读操作必须能够共享互斥锁，该互斥锁采用时分复用的方式，固定时间获得读取权限。
+      e.采用事务方法可以提高性能。
+
+  2.本地UI控件采用信号-槽机制，数值update后，会发出valueChanged信号给UI更新。尽可能减少数据库读写操作。
+    void valueChanged(const Qstring& tagName, const Qvariant& data, const int& type)
+
+  3.运行时，每个tag有三种读写策略：
+      a.Read only 一直读取
+      b.Write only 一直写入
+      c.Read/Write 一直读取。driver的address信息中包含一个写一次（write once）状态位。该指令由UI控件发出，至processDataAccessInterface类，转发到driverManager并最终至各个driver的address。driver发现某个tag的状态位置位，则停止读取数据。同时写入程序则把该值写入到下位机，之后才把状态位复位。该逻辑设计时要注意竞争。
+
+  4.每个tag都有一个读写间隔(roll interv)参数。driver类负责轮巡读写每个tag，每次动态生成一个需要读取的tag列表，和一个需要写入的tag列表。driver类把这两个列表交给另一个底层的，与协议相关的类进行通信。底层类对地址进行排序，优化出一个实际读写区间，优化读速度。（需要再细化）
+
+  5.有一个全局工作状态，该状态分为configure和run。
+    configure状态下，停止数据读写，允许tag和address等参数的编辑。
+    run状态下，启动数据读写。因此，需要driverManager类和driver类具备一个configure和一个run的槽，用于起停所有driver的数据读写工作。
+
+  6.应该有一个systemDriver，作为测试用。
+
+
+
+==========================================20161228
+-------------v0.10规划修改-----------
+一.数据结构
+
+  使用sqlite3 数据库 作为 标签及驱动参数库。该数据库命名为tags and drivers parameters database(tdpdb)，tdpdb 中：
+  表0:存储tag信息和值。tag name, tag type, value, quailty code
+      每一行都代表一个tag，tagManager类负责操作。
+  表1:第一个driver的address信息。tag name, data type, address, R/W strategy每一行都代表一个tag，driverManager类负责操作。
+  表2:第二个driver的address信息。
+  表3:第三个。。
+
+  使用sqlite3 内存数据库 作为 数据池。该数据库命名为process database(pdb)，pdb与tdpdb结构一致。启动时，tagManager类负责拷贝tdodb到pdb。pdb仅作为数据读写，所有设置参数只读。
+
+二.主要类成员
+  tagManager类：
+  1.封装tdpdb 表0的信息读写，即
+    a.tag新建、删除、修改
+  2.封装pdb表0的信息读写，即
+    a.tag数据读/写
+  3.管理一个互斥锁，数据库的R/W不能冲突。考虑做时分复用
+  4.管理pdb的复制、保存
+
+  driverManager类：
+  1.封装tdpdb表1、2、3...的信息读写，含
+    a.各个driver的新建、修改、删除的api
+    b.根据driver的新建、删除，动态建立、删除pdb表2、3...
+  2.修改address时，调用对应driver的verify函数
+  3.driver parameters由对应driver产生，driverManager负责存储和读取
+  4.含QList<driver*>，管理driver的实例。
+
+  driver类:
+  1.具体的通信协议解析
+  2.初始化时 获得从driverManager发出的一个address的列表，含name, type, address, R/W  strategy等信息。
+  3.负责判断address是否合法，该工作由driverManager类发起。
+  4.负责参数修改，交给driverManager类来存取
+三、重点功能
+  1.数据库的读写：
+    SQLite数据库特性：
+      a.当有写操作时，其他读操作会被驳回
+      b.当有写操作时，其他写操作会被驳回
+      c.当开启事务时，在提交事务之前，其他写操作会被驳回
+      d.当开启事务时，在提交事务之前，其他事务请求会被驳回
+      e.当有读操作时，其他写操作会被驳回
+      f.读操作之间能够并发执行
+    对策：
+      a.采用互斥锁控制数据库写操作
+      b.只有拥有互斥锁的线程才能够操作数据库
+      c.写操作必须独立拥有互斥锁
+      d.读操作必须能够共享互斥锁，该互斥锁采用时分复用的方式，固定时间获得读取权限。
+      e.不采用事务（auto commit）
+  2.本地UI控件采用信号-槽机制，数值update后，会发出valueChanged信号给UI更新。尽可能减少数据库读写操作。
+  3.每个tag有三种读写策略：
+      a.Read only 一直读取
+      b.Write only 一直写入
+      c.Read/Write 一直读取，同时提供一个写一次（write once）状态位。该指令由UI控件发出，经driverManager类转发到各个driver。driver发现某个tag的状态位置位，则停
+        止读取数据。同时写入程序则把该值写入到下位机，之后才把状态位复位。该逻辑设计时要注意竞争。
+  4.每个tag都有一个读写间隔(roll interv)参数。driver类负责轮巡读写每个tag，每次动态生成一个需要读取的tag列表，和一个需要写入的tag列表。driver类把这两个列表交给另一个底
+    层的，与协议相关的类进行通信。底层类对地址进行排序，优化出一个实际读写区间，优化读速度。（需要再细化）
+  5.有一个全局工作状态，该状态分为configure和run。
+    configure状态下，停止数据读写，允许tag和address等参数的编辑。
+    run状态下，启动数据读写。因此，需要driverManager类和driver类具备一个configure和一个run的槽，用于起停所有driver的数据读写工作。
+  6.应该有一个systemDriver，作为测试用。
+
+
+==========================================20160803
+-------------v0.03规划修改-----------
 一、静态设计
 1、设计tagItem类和tagManager类（取消tagGroup）。另外还有driver类和driverManager类。（有关的主要是driver类）
 2、tagManager管理所有的tagItems，维护一个tagID和tagItem*的哈希表。tagID是一个全局唯一的（QString,UUID）。tagID随着变量诞生，且永远不变。
@@ -48,7 +280,7 @@ todo
 1、driver要分为driver（能够更新tagItem）和repeater（不允许更新tagItem）。一个tagItem不能有两个或以上的driver，可以有任意个repeater。
 2、消息汇总，标准化、可组态
 ==========================================20160802
--------------v0.2规划修改-----------
+-------------v0.02规划修改-----------
 一、静态设计
 1、设计tagItem类和tagManager类（取消tagGroup）。另外还有driver类和driverManager类。（有关的主要是driver类）
 2、tagManager管理所有的tagItems，维护一个tagName和tagItem*的哈希表。
@@ -90,7 +322,7 @@ todo
 todo
 1、driver要分为driver（能够更新tagItem）和repeater（不允许更新tagItem）。一个tagItem不能有两个或以上的driver，可以有任意个repeater。
 ==========================================20160801
--------------v0.1规划---------------
+-------------v0.01规划---------------
 
 一、总体设计
 1、设计tagItem类、tagGroup类和tagManager类
