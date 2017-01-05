@@ -5,3 +5,5 @@ bin
 *.suo
 *.bak
 *.tmp
+*build*
+*old*
